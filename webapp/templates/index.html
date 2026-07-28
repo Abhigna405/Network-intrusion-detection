@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Network Intrusion Detection System</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>🛡️ Network Intrusion Detection System</h1>
+      <p class="subtitle">Random Forest on NSL-KDD &middot; {{ (metrics.accuracy * 100) | round(1) }}% test accuracy across 5 classes</p>
+    </header>
+
+    <div class="card sample-card">
+      <h2>Load a real sample</h2>
+      <p class="hint">These are actual traffic records from the NSL-KDD test set — click one to autofill the form, then hit Classify.</p>
+      <div class="sample-buttons">
+        {% for cls in classes %}
+        {% if cls in samples %}
+        <button type="button" class="sample-btn sample-{{ cls }}" data-cls="{{ cls }}">{{ cls }}</button>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="grid">
+      <form id="nids-form" class="card">
+        <h2>Connection record</h2>
+        <div class="field-grid">
+          {% for col in categorical_cols %}
+          <div class="field">
+            <label for="{{ col }}">{{ col }}</label>
+            <select id="{{ col }}" name="{{ col }}">
+              {% for opt in categorical_options[col] %}
+              <option value="{{ opt }}">{{ opt }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% endfor %}
+
+          {% for col in numeric_cols %}
+          <div class="field">
+            <label for="{{ col }}">{{ col }}</label>
+            <input type="number" step="any" id="{{ col }}" name="{{ col }}" value="{{ numeric_defaults[col] }}">
+          </div>
+          {% endfor %}
+        </div>
+        <button type="submit" id="predict-btn">Classify traffic</button>
+      </form>
+
+      <div class="card result-card">
+        <h2>Classification</h2>
+        <div id="result-placeholder" class="placeholder">
+          Load a sample or fill in the fields, then click <strong>Classify traffic</strong>.
+        </div>
+        <div id="result" class="hidden">
+          <div id="verdict" class="verdict"></div>
+          <div id="confidence-text" class="prob-text"></div>
+          <h3>Class probabilities</h3>
+          <div id="class-probs"></div>
+          <h3>Top signal features</h3>
+          <ul id="top-features"></ul>
+        </div>
+      </div>
+    </div>
+
+    <footer>Built by Bumpally Abhigna Sphoorthi &middot; CodTech ML Internship (CITS4797)</footer>
+  </div>
+
+<script>
+const SAMPLES = {{ samples | tojson }};
+
+const form = document.getElementById('nids-form');
+const resultDiv = document.getElementById('result');
+const placeholder = document.getElementById('result-placeholder');
+const verdict = document.getElementById('verdict');
+const confidenceText = document.getElementById('confidence-text');
+const classProbsDiv = document.getElementById('class-probs');
+const topFeaturesList = document.getElementById('top-features');
+const btn = document.getElementById('predict-btn');
+
+document.querySelectorAll('.sample-btn').forEach(b => {
+  b.addEventListener('click', () => {
+    const cls = b.dataset.cls;
+    const sample = SAMPLES[cls];
+    if (!sample) return;
+    Object.entries(sample).forEach(([key, value]) => {
+      const el = form.elements[key];
+      if (el) el.value = value;
+    });
+  });
+});
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  btn.disabled = true;
+  btn.textContent = 'Classifying...';
+
+  const formData = new FormData(form);
+  const payload = {};
+  formData.forEach((value, key) => { payload[key] = value; });
+
+  try {
+    const res = await fetch('/predict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+
+    placeholder.classList.add('hidden');
+    resultDiv.classList.remove('hidden');
+
+    verdict.textContent = data.label_text;
+    verdict.className = 'verdict ' + data.risk_class;
+    confidenceText.textContent = `Confidence: ${data.confidence}%`;
+
+    classProbsDiv.innerHTML = '';
+    Object.entries(data.class_probs).sort((a, b) => b[1] - a[1]).forEach(([cls, pct]) => {
+      const row = document.createElement('div');
+      row.className = 'prob-row';
+      row.innerHTML = `
+        <span class="prob-label">${cls}</span>
+        <div class="prob-bar-bg"><div class="prob-bar" style="width:${pct}%"></div></div>
+        <span class="prob-pct">${pct}%</span>`;
+      classProbsDiv.appendChild(row);
+    });
+
+    topFeaturesList.innerHTML = '';
+    data.top_features.forEach(f => {
+      const li = document.createElement('li');
+      li.textContent = f;
+      topFeaturesList.appendChild(li);
+    });
+  } catch (err) {
+    placeholder.textContent = 'Something went wrong. Is the Flask server running?';
+    placeholder.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Classify traffic';
+  }
+});
+</script>
+</body>
+</html>
